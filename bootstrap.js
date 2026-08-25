@@ -48,6 +48,7 @@ var ZoteroMarkdownAnnotations = {
         try {
             Services.scriptloader.loadSubScript(this.rootURI + 'lib/markdown-it.min.js', win);
             try { Services.scriptloader.loadSubScript(this.rootURI + 'lib/katex.min.js', win); } catch(e){}
+            try { Services.scriptloader.loadSubScript(this.rootURI + 'lib/katex-css.js', win); } catch(e){}
             try { Services.scriptloader.loadSubScript(this.rootURI + 'lib/katex-fonts.js', win); } catch(e){}
             
             let md = null;
@@ -195,13 +196,12 @@ var ZoteroMarkdownAnnotations = {
                 else if (doc.documentElement) doc.documentElement.appendChild(style);
                 
                 // Inject KaTeX CSS
-                if(!doc.getElementById('katex-css')) {
-                    let link = doc.createElement('link');
-                    link.id = 'katex-css';
-                    link.rel = 'stylesheet';
-                    link.href = this.rootURI + 'lib/katex.min.css';
-                    if (doc.head) doc.head.appendChild(link);
-                    else if (doc.documentElement) doc.documentElement.appendChild(link);
+                if(!doc.getElementById('katex-css') && win.KATEX_CSS) {
+                    let style = doc.createElement('style');
+                    style.id = 'katex-css';
+                    style.innerHTML = win.KATEX_CSS;
+                    if (doc.head) doc.head.appendChild(style);
+                    else if (doc.documentElement) doc.documentElement.appendChild(style);
                 }
                 
                 // Load KaTeX Fonts into memory
