@@ -1,0 +1,6 @@
+# Builds
+*.xpi
+*.zip
+# OS
+.DS_Store
+Thumbs.db
