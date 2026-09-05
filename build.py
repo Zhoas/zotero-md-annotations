@@ -2,7 +2,7 @@ import shutil
 import os
 
 plugin_dir = os.path.dirname(os.path.abspath(__file__))
-out_base = os.path.join(plugin_dir, "zotero-md-annotations-release_v0.1")
+out_base = os.path.join(plugin_dir, "zotero-md-annotations-release_v0.1.2")
 out_zip = out_base + ".zip"
 out_xpi = out_base + ".xpi"
 

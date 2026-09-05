@@ -362,10 +362,20 @@ var ZoteroMarkdownAnnotations = {
                                         parent = parent.parentElement;
                                     }
                                     
-                                    function unlockResize(elem) {
+                                    function unlockResize(elem, otherElem) {
                                         elem.addEventListener('mousedown', (e) => {
                                             let rect = elem.getBoundingClientRect();
                                             if (e.clientX > rect.right - 25 && e.clientY > rect.bottom - 25) {
+                                                let currentW = elem.offsetWidth;
+                                                let currentH = elem.offsetHeight;
+                                                if (!elem.style.width && currentW) {
+                                                    elem.style.width = currentW + 'px';
+                                                    otherElem.style.width = currentW + 'px';
+                                                }
+                                                if (!elem.style.height && currentH) {
+                                                    elem.style.height = currentH + 'px';
+                                                    otherElem.style.height = currentH + 'px';
+                                                }
                                                 node.style.maxHeight = 'none';
                                                 renderedDiv.style.maxHeight = 'none';
                                                 if (p) {
@@ -376,8 +386,8 @@ var ZoteroMarkdownAnnotations = {
                                             }
                                         });
                                     }
-                                    unlockResize(node);
-                                    unlockResize(renderedDiv);
+                                    unlockResize(node, renderedDiv);
+                                    unlockResize(renderedDiv, node);
                                     
                                     if (viewWin.ResizeObserver) {
                                         let ro = new viewWin.ResizeObserver(() => {
@@ -424,8 +434,27 @@ var ZoteroMarkdownAnnotations = {
                                     }
 
                                     let isEditing = true;
-                                    renderedDiv.style.display = 'none';
-                                    node.style.display = '';
+                                    let initialText = node.value !== undefined ? node.value : (node.innerText || node.textContent);
+                                    if (initialText && initialText.trim() !== '') {
+                                        updateRenderedView(initialText);
+                                        renderedDiv.dataset.lastRawText = initialText;
+                                        isEditing = false;
+                                        node.style.display = 'none';
+                                        renderedDiv.style.display = 'block';
+                                        toggleBtn.innerText = '源码编辑';
+                                    } else {
+                                        isEditing = true;
+                                        renderedDiv.style.display = 'none';
+                                        node.style.display = '';
+                                        toggleBtn.innerText = 'MD预览';
+                                    }
+
+                                    innerDiv.addEventListener('dblclick', (e) => {
+                                        e.stopPropagation();
+                                        if (!isEditing) {
+                                            toggleBtn.click();
+                                        }
+                                    });
 
                                     toggleBtn.addEventListener('click', (e) => {
                                         e.stopPropagation();

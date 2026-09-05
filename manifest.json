@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero Markdown Annotations",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Render Markdown natively within Zotero PDF annotation comments.",
   "author": "Zhoas & Gemini",
   "homepage_url": "https://github.com/Zhoas/zotero-md-annotations",
