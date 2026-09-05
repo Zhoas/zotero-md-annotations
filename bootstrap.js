@@ -211,8 +211,8 @@ var ZoteroMarkdownAnnotations = {
                 }
                 .my-markdown-rendered-view.md-in-sidebar { width: 100% !important; resize: none !important; box-sizing: border-box !important; }
                 [contenteditable].md-in-sidebar { width: 100% !important; resize: vertical !important; box-sizing: border-box !important; }
-                .my-markdown-rendered-view.md-in-popup { resize: both !important; overflow: auto !important; max-width: none !important; max-height: none !important; box-sizing: border-box !important; }
-                [contenteditable].md-in-popup { resize: both !important; overflow: auto !important; max-width: none !important; max-height: none !important; box-sizing: border-box !important; }
+                .my-markdown-rendered-view.md-in-popup { resize: both !important; overflow: auto !important; max-height: 380px; box-sizing: border-box !important; }
+                [contenteditable].md-in-popup { resize: both !important; overflow: auto !important; max-height: 380px; box-sizing: border-box !important; }
                 
                 .my-markdown-rendered-view h1 { font-size: 1.5em; font-weight: bold; margin: 0.5em 0; border-bottom: 1px solid #ccc; padding-bottom: 0.3em; }
                 .my-markdown-rendered-view h2 { font-size: 1.3em; font-weight: bold; margin: 0.5em 0; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
@@ -228,8 +228,6 @@ var ZoteroMarkdownAnnotations = {
                 .my-markdown-rendered-view ul { list-style-type: disc !important; }
                 .my-markdown-rendered-view li { margin-bottom: 0.2em !important; display: list-item !important; }
                 .katex { font-family: "Cambria Math", "Latin Modern Math", serif !important; font-size: 1.1em; }
-                
-                [data-testid="annotation-popup"] { width: fit-content !important; max-width: none !important; max-height: none !important; }
                 
                 .md-toggle-btn { position: absolute; top: -24px; right: 0px; z-index: 9999; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; padding: 2px 6px; font-size: 11px; cursor: pointer; color: #333; }
                 .md-toggle-btn:hover { background: #e0e0e0; }
@@ -364,19 +362,43 @@ var ZoteroMarkdownAnnotations = {
                                         parent = parent.parentElement;
                                     }
                                     
+                                    function unlockResize(elem) {
+                                        elem.addEventListener('mousedown', (e) => {
+                                            let rect = elem.getBoundingClientRect();
+                                            if (e.clientX > rect.right - 25 && e.clientY > rect.bottom - 25) {
+                                                node.style.maxHeight = 'none';
+                                                renderedDiv.style.maxHeight = 'none';
+                                                if (p) {
+                                                    p.style.width = 'fit-content';
+                                                    p.style.maxWidth = 'none';
+                                                    p.style.maxHeight = 'none';
+                                                }
+                                            }
+                                        });
+                                    }
+                                    unlockResize(node);
+                                    unlockResize(renderedDiv);
+                                    
                                     if (viewWin.ResizeObserver) {
                                         let ro = new viewWin.ResizeObserver(() => {
-                                            if (p && (node.style.width || renderedDiv.style.width || node.style.height || renderedDiv.style.height)) {
-                                                p.style.width = "fit-content";
-                                                p.style.maxWidth = "none";
-                                                p.style.maxHeight = "none";
+                                            let isRendered = renderedDiv.style.display !== 'none';
+                                            let active = isRendered ? renderedDiv : node;
+                                            let inactive = isRendered ? node : renderedDiv;
+
+                                            if (active.style.width && inactive.style.width !== active.style.width) {
+                                                inactive.style.width = active.style.width;
                                             }
-                                            if (renderedDiv.style.display !== 'none') {
-                                                if (node.style.width !== renderedDiv.style.width) node.style.width = renderedDiv.style.width;
-                                                if (node.style.height !== renderedDiv.style.height) node.style.height = renderedDiv.style.height;
-                                            } else {
-                                                if (renderedDiv.style.width !== node.style.width) renderedDiv.style.width = node.style.width;
-                                                if (renderedDiv.style.height !== node.style.height) renderedDiv.style.height = node.style.height;
+                                            if (active.style.height && inactive.style.height !== active.style.height) {
+                                                inactive.style.height = active.style.height;
+                                            }
+                                            if (active.style.width || active.style.height) {
+                                                active.style.maxHeight = 'none';
+                                                inactive.style.maxHeight = 'none';
+                                                if (p) {
+                                                    p.style.width = 'fit-content';
+                                                    p.style.maxWidth = 'none';
+                                                    p.style.maxHeight = 'none';
+                                                }
                                             }
                                         });
                                         ro.observe(renderedDiv);
@@ -411,17 +433,17 @@ var ZoteroMarkdownAnnotations = {
                                         isEditing = !isEditing;
                                         
                                         if (isEditing) {
-                                            let w = renderedDiv.style.width || viewWin.getComputedStyle(renderedDiv).width;
-                                            let h = renderedDiv.style.height || viewWin.getComputedStyle(renderedDiv).height;
+                                            let w = renderedDiv.style.width;
+                                            let h = renderedDiv.style.height;
                                             renderedDiv.style.display = 'none';
                                             node.style.display = '';
-                                            if (w && w !== 'auto') node.style.width = w;
-                                            if (h && h !== 'auto') node.style.height = h;
+                                            if (w) node.style.width = w;
+                                            if (h) node.style.height = h;
                                             toggleBtn.innerText = 'MD预览';
                                             node.focus();
                                         } else {
-                                            let w = node.style.width || viewWin.getComputedStyle(node).width;
-                                            let h = node.style.height || viewWin.getComputedStyle(node).height;
+                                            let w = node.style.width;
+                                            let h = node.style.height;
                                             let currentText = node.value !== undefined ? node.value : (node.innerText || node.textContent);
                                             if (renderedDiv.dataset.lastRawText !== currentText) {
                                                 updateRenderedView(currentText);
@@ -429,8 +451,8 @@ var ZoteroMarkdownAnnotations = {
                                             }
                                             node.style.display = 'none';
                                             renderedDiv.style.display = 'block';
-                                            if (w && w !== 'auto') renderedDiv.style.width = w;
-                                            if (h && h !== 'auto') renderedDiv.style.height = h;
+                                            if (w) renderedDiv.style.width = w;
+                                            if (h) renderedDiv.style.height = h;
                                             toggleBtn.innerText = '源码编辑';
                                         }
                                     });
