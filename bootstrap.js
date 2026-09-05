@@ -66,65 +66,118 @@ var ZoteroMarkdownAnnotations = {
                             return { can_open: can_open, can_close: can_close };
                         }
                         function math_inline(state, silent) {
+                            let start, match, token, res, pos;
                             if (state.src[state.pos] !== "$") return false;
-                            let res = isValidDelim(state, state.pos);
-                            if (!res.can_open) { if (!silent) state.pending += "$"; state.pos += 1; return true; }
-                            let start = state.pos + 1, match = start;
+
+                            // Support $$...$$ inline display math
+                            if (state.src.slice(state.pos, state.pos + 2) === "$$") {
+                                start = state.pos + 2;
+                                match = start;
+                                while ((match = state.src.indexOf("$$", match)) !== -1) {
+                                    pos = match - 1;
+                                    while (state.src[pos] === "\\") pos -= 1;
+                                    if ((match - pos) % 2 === 1) break;
+                                    match += 2;
+                                }
+                                if (match === -1) {
+                                    if (!silent) state.pending += "$$";
+                                    state.pos = start;
+                                    return true;
+                                }
+                                if (!silent) {
+                                    token = state.push('math_block', 'math', 0);
+                                    token.block = true;
+                                    token.markup = "$$";
+                                    token.content = state.src.slice(start, match);
+                                }
+                                state.pos = match + 2;
+                                return true;
+                            }
+
+                            // Standard $...$ inline math
+                            res = isValidDelim(state, state.pos);
+                            if (!res.can_open) {
+                                if (!silent) state.pending += "$";
+                                state.pos += 1;
+                                return true;
+                            }
+                            start = state.pos + 1;
+                            match = start;
                             while ((match = state.src.indexOf("$", match)) !== -1) {
-                                let pos = match - 1;
-                                while (state.src[pos] === "\\\\") pos -= 1;
-                                if ((match - pos) % 2 == 1) break;
+                                pos = match - 1;
+                                while (state.src[pos] === "\\") pos -= 1;
+                                if ((match - pos) % 2 === 1) break;
                                 match += 1;
                             }
-                            if (match === -1) { if (!silent) state.pending += "$"; state.pos = start; return true; }
-                            if (match - start === 0) { if (!silent) state.pending += "$$"; state.pos = start + 1; return true; }
+                            if (match === -1) {
+                                if (!silent) state.pending += "$";
+                                state.pos = start;
+                                return true;
+                            }
+                            if (match - start === 0) {
+                                if (!silent) state.pending += "$$";
+                                state.pos = start + 1;
+                                return true;
+                            }
                             res = isValidDelim(state, match);
                             if (res.can_close) {
                                 if (!silent) {
-                                    let token = state.push('math_inline', 'math', 0);
-                                    token.markup = "$"; token.content = state.src.slice(start, match);
+                                    token = state.push('math_inline', 'math', 0);
+                                    token.markup = "$";
+                                    token.content = state.src.slice(start, match);
                                 }
-                                state.pos = match + 1; return true;
+                                state.pos = match + 1;
+                                return true;
                             }
-                            if (!silent) state.pending += "$"; state.pos = start; return true;
+                            if (!silent) state.pending += "$";
+                            state.pos = start;
+                            return true;
                         }
+
                         function math_block(state, startLine, endLine, silent) {
-                            let nextLine, markup, params, token,
+                            let firstLine, lastLine, nextLine, lastPos,
                                 haveEndMarker = false,
                                 pos = state.bMarks[startLine] + state.tShift[startLine],
                                 max = state.eMarks[startLine];
+
                             if (pos + 2 > max) { return false; }
                             if (state.src.slice(pos, pos + 2) !== '$$') { return false; }
-                            pos += 2;
-                            markup = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], pos);
-                            params = state.src.slice(pos, max);
+
+                            firstLine = state.src.slice(pos + 2, max);
+
                             if (silent) { return true; }
-                            nextLine = startLine;
-                            for (;;) {
-                                nextLine++;
-                                if (nextLine >= endLine) { break; }
-                                pos = state.bMarks[nextLine] + state.tShift[nextLine];
-                                max = state.eMarks[nextLine];
-                                if (pos < max && state.tShift[nextLine] < state.blkIndent) { break; }
-                                if (state.src.slice(pos, max).trim().slice(-2) === '$$') {
-                                    haveEndMarker = true;
-                                    break;
-                                }
-                            }
-                            state.line = nextLine + (haveEndMarker ? 1 : 0);
-                            token = state.push('math_block', 'math', 0);
-                            token.block = true;
-                            token.content = (state.getLines(startLine + 1, nextLine, state.tShift[startLine], true)).trim();
-                            if (!haveEndMarker) {
-                                token.content = (state.src.slice(state.bMarks[startLine] + state.tShift[startLine] + 2, state.eMarks[startLine])).trim() + "\\n" + token.content;
+
+                            if (firstLine.trim().slice(-2) === '$$') {
+                                // Single line expression: $$...$$
+                                firstLine = firstLine.trim().slice(0, -2);
+                                haveEndMarker = true;
+                                nextLine = startLine;
                             } else {
-                                let lastLine = state.src.slice(state.bMarks[nextLine] + state.tShift[nextLine], state.eMarks[nextLine]).trim();
-                                if (lastLine.length > 2) {
-                                    token.content += "\\n" + lastLine.slice(0, -2).trim();
+                                nextLine = startLine;
+                                for (;;) {
+                                    nextLine++;
+                                    if (nextLine >= endLine) { break; }
+                                    pos = state.bMarks[nextLine] + state.tShift[nextLine];
+                                    max = state.eMarks[nextLine];
+                                    if (pos < max && state.tShift[nextLine] < state.blkIndent) { break; }
+                                    if (state.src.slice(pos, max).trim().slice(-2) === '$$') {
+                                        lastPos = state.src.slice(0, max).lastIndexOf('$$');
+                                        lastLine = state.src.slice(pos, lastPos);
+                                        haveEndMarker = true;
+                                        break;
+                                    }
                                 }
                             }
+
+                            state.line = nextLine + (haveEndMarker ? 1 : 0);
+                            let token = state.push('math_block', 'math', 0);
+                            token.block = true;
+                            token.content = (firstLine && firstLine.trim() ? firstLine + '\n' : '')
+                                + state.getLines(startLine + 1, nextLine, state.tShift[startLine], true)
+                                + (lastLine && lastLine.trim() ? lastLine : '');
+                            token.content = token.content.trim();
                             token.map = [ startLine, state.line ];
-                            token.markup = markup;
+                            token.markup = '$$';
                             return true;
                         }
                         md.inline.ruler.after('escape', 'math_inline', math_inline);
