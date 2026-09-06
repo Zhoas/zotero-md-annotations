@@ -209,11 +209,38 @@ var ZoteroMarkdownAnnotations = {
                     font-size: 13px; 
                     resize: both !important; /* Allow resizing the text area itself */
                 }
-                .my-markdown-rendered-view.md-in-sidebar { width: 100% !important; resize: none !important; box-sizing: border-box !important; padding: 4px 8px !important; overflow: visible !important; cursor: default !important; }
-                annotation-row .my-markdown-rendered-view, .annotation-row .my-markdown-rendered-view { padding: 4px 8px !important; overflow: visible !important; display: block !important; -webkit-line-clamp: unset !important; -webkit-box-orient: unset !important; cursor: default !important; font-size: 13px; line-height: 1.5; }
-                annotation-row .my-markdown-rendered-view p, .annotation-row .my-markdown-rendered-view p { margin: 0.3em 0 !important; }
-                annotation-row .my-markdown-rendered-view ol, annotation-row .my-markdown-rendered-view ul, .annotation-row .my-markdown-rendered-view ol, .annotation-row .my-markdown-rendered-view ul { margin: 0.3em 0 !important; padding-left: 14px !important; }
-                [contenteditable].md-in-sidebar { width: 100% !important; resize: vertical !important; box-sizing: border-box !important; }
+                .my-markdown-rendered-view.md-in-sidebar { 
+                    width: 100% !important; 
+                    box-sizing: border-box !important; 
+                }
+                [contenteditable].md-in-sidebar,
+                .expandable-editor.expanded .my-markdown-rendered-view.md-in-sidebar { 
+                    width: 100% !important; 
+                    resize: vertical !important; 
+                    overflow: auto !important; 
+                    box-sizing: border-box !important; 
+                }
+                .expandable-editor:not(.expanded) .my-markdown-rendered-view { 
+                    max-height: 48px !important; 
+                    overflow: hidden !important; 
+                    resize: none !important; 
+                }
+                .expandable-editor:not(.expanded) .md-toggle-btn { 
+                    display: none !important; 
+                }
+                annotation-row .my-markdown-rendered-view, .annotation-row .my-markdown-rendered-view, .my-markdown-rendered-view.md-in-library-sidebar { 
+                    padding: 4px 8px !important; 
+                    overflow: visible !important; 
+                    display: block !important; 
+                    -webkit-line-clamp: unset !important; 
+                    -webkit-box-orient: unset !important; 
+                    cursor: default !important; 
+                    font-size: 13px; 
+                    line-height: 1.5; 
+                    resize: none !important; 
+                }
+                annotation-row .my-markdown-rendered-view p, .annotation-row .my-markdown-rendered-view p, .my-markdown-rendered-view.md-in-library-sidebar p { margin: 0.3em 0 !important; }
+                annotation-row .my-markdown-rendered-view ol, annotation-row .my-markdown-rendered-view ul, .annotation-row .my-markdown-rendered-view ol, .annotation-row .my-markdown-rendered-view ul, .my-markdown-rendered-view.md-in-library-sidebar ol, .my-markdown-rendered-view.md-in-library-sidebar ul { margin: 0.3em 0 !important; padding-left: 14px !important; }
                 .my-markdown-rendered-view.md-in-popup { resize: both !important; overflow: auto !important; max-height: 380px; box-sizing: border-box !important; }
                 [contenteditable].md-in-popup { resize: both !important; overflow: auto !important; max-height: 380px; box-sizing: border-box !important; }
                 
@@ -240,6 +267,12 @@ var ZoteroMarkdownAnnotations = {
 
             `;
 
+            function logToFile(msg) {
+                try {
+                    if (typeof dump === 'function') dump("[zotero-md-annotations] " + msg + "\n");
+                } catch(e) {}
+            }
+
             function createHTML(doc, tag) {
                 if (doc && doc.contentType === 'text/html') {
                     return doc.createElement(tag);
@@ -259,14 +292,11 @@ var ZoteroMarkdownAnnotations = {
                     }
 
                     if (defaultWin && defaultWin.DOMParser) {
-                        let parser = new defaultWin.DOMParser();
+                        let parser = defaultWin.__mdDOMParser || (defaultWin.__mdDOMParser = new defaultWin.DOMParser());
                         let parsed = parser.parseFromString(html, 'text/html');
                         if (parsed && parsed.body) {
-                            elem.replaceChildren();
                             let imported = ownerDoc ? ownerDoc.importNode(parsed.body, true) : parsed.body;
-                            while (imported.firstChild) {
-                                elem.appendChild(imported.firstChild);
-                            }
+                            elem.replaceChildren(...imported.childNodes);
                             return;
                         }
                     }
@@ -283,7 +313,11 @@ var ZoteroMarkdownAnnotations = {
             }
 
             let injectStyle = (doc) => {
-                if (!doc || doc.getElementById('md-annotations-style')) return;
+                if (!doc || doc._mdStyleInjected) return;
+                if (doc.getElementById && doc.getElementById('md-annotations-style')) {
+                    doc._mdStyleInjected = true;
+                    return;
+                }
                 
                 try {
                     // Inject our custom styles
@@ -306,6 +340,7 @@ var ZoteroMarkdownAnnotations = {
                     if (win.loadKaTeXFonts) {
                         win.loadKaTeXFonts(doc);
                     }
+                    doc._mdStyleInjected = true;
                 } catch(e) {
                     logToFile("injectStyle error: " + e.message);
                 }
@@ -335,31 +370,98 @@ var ZoteroMarkdownAnnotations = {
                 return s;
             }
 
-            function getSidebarRawText(node, row) {
-                let text = '';
+            function renderSidebarRow(node, row, doc) {
                 try {
-                    if (row) {
-                        let anno = row.annotation;
-                        if (!anno && row.getAttribute) {
-                            let id = row.getAttribute('annotation-id');
-                            let Z = win.Zotero || (typeof Zotero !== 'undefined' ? Zotero : null);
-                            if (Z && Z.Items && id) {
-                                anno = Z.Items.get(parseInt(id, 10)) || Z.Items.get(id);
-                            }
-                        }
-                        if (anno && typeof anno.annotationComment === 'string' && anno.annotationComment.trim() !== '') {
-                            text = anno.annotationComment;
+                    let anno = row ? row.annotation : null;
+                    if (!anno && row && row.getAttribute) {
+                        let id = row.getAttribute('annotation-id');
+                        let Z = win.Zotero || (typeof Zotero !== 'undefined' ? Zotero : null);
+                        if (Z && Z.Items && id) {
+                            anno = Z.Items.get(parseInt(id, 10)) || Z.Items.get(id);
                         }
                     }
+
+                    let rawSource = (anno && typeof anno.annotationComment === 'string' && anno.annotationComment.trim() !== '')
+                        ? anno.annotationComment
+                        : (node.value !== undefined ? node.value : (node.innerText || node.textContent || ''));
+
+                    let rDiv = node.parentNode ? node.parentNode.querySelector(':scope > .my-markdown-rendered-view') : node.nextElementSibling;
+
+                    if (node.dataset.mdRendered === 'true' && rDiv && rDiv.classList.contains('my-markdown-rendered-view')) {
+                        if (rDiv.dataset.lastRawSource === rawSource) {
+                            return; // Fast bail-out: 0 regex, 0 DOM manipulation!
+                        }
+
+                        let rawText = decodeRichComment(rawSource);
+                        rDiv.dataset.lastRawSource = rawSource;
+                        rDiv.dataset.lastRawText = rawText;
+
+                        if (!rawText || rawText.trim() === '') {
+                            rDiv.style.display = 'none';
+                            node.style.display = '';
+                        } else {
+                            try {
+                                let renderedHTML = md.render(rawText);
+                                setSafeHTML(rDiv, renderedHTML, doc, win);
+                                node.style.display = 'none';
+                                rDiv.style.display = 'block';
+                            } catch(err) {
+                                node.style.display = '';
+                                rDiv.style.display = 'none';
+                            }
+                        }
+                        return;
+                    }
+
+                    if (rDiv && rDiv.classList.contains('my-markdown-rendered-view')) {
+                        rDiv.remove();
+                    }
+
+                    let rawText = decodeRichComment(rawSource);
+                    if (!rawText || rawText.trim() === '') {
+                        return;
+                    }
+
+                    let renderedDiv = createHTML(doc, 'div');
+                    renderedDiv.className = 'my-markdown-rendered-view md-in-library-sidebar';
+
+                    try {
+                        let renderedHTML = md.render(rawText);
+                        setSafeHTML(renderedDiv, renderedHTML, doc, win);
+                        node.style.display = 'none';
+                        renderedDiv.style.display = 'block';
+                    } catch(err) {
+                        node.style.display = '';
+                        renderedDiv.style.display = 'none';
+                    }
+
+                    renderedDiv.dataset.lastRawSource = rawSource;
+                    renderedDiv.dataset.lastRawText = rawText;
+                    node.dataset.mdRendered = 'true';
+
+                    if (node.parentNode) {
+                        node.parentNode.insertBefore(renderedDiv, node.nextSibling);
+                    }
                 } catch(e) {
-                    logToFile("getSidebarRawText error: " + e.message);
+                    logToFile("renderSidebarRow error: " + e.message);
                 }
+            }
 
-                if (!text) {
-                    text = node.value !== undefined ? node.value : (node.innerText || node.textContent || '');
+            function getNodeRawText(node) {
+                if (!node) return '';
+                if (node.value !== undefined) return node.value;
+                if (node.style.display !== 'none') {
+                    return node.innerText || node.textContent || '';
                 }
-
-                return decodeRichComment(text);
+                let html = node.innerHTML;
+                if (!html) return node.textContent || '';
+                let doc = node.ownerDocument || win.document;
+                let temp = doc.createElement('div');
+                temp.innerHTML = html;
+                temp.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+                temp.querySelectorAll('p, div').forEach(b => b.prepend('\n'));
+                let text = temp.textContent || '';
+                return text.replace(/^\n/, '');
             }
 
             let timerId = win.setInterval(() => {
@@ -368,51 +470,41 @@ var ZoteroMarkdownAnnotations = {
                     let mainDoc = win.document;
                     injectStyle(mainDoc);
                     
-                    let seenNodes = new Set();
-                    let targets = [];
+                    // 1. Right sidebar in main library view (annotation-row in mainDoc)
+                    try {
+                        let rows = mainDoc.querySelectorAll('annotation-row, [annotation-id]');
+                        for (let i = 0; i < rows.length; i++) {
+                            let r = rows[i];
+                            let c = r.querySelector ? r.querySelector('.comment') : null;
+                            if (c && !c.classList.contains('my-markdown-rendered-view')) {
+                                renderSidebarRow(c, r, mainDoc);
+                            }
+                        }
+                    } catch(e) {}
 
+                    // 2. Editable comments in PDF reader (both left sidebar and popup)
+                    let targets = [];
                     function scan(root, docName) {
                         if (!root || !root.querySelectorAll) return;
-
-                        // 1. Scan for annotation rows by attribute (namespace-agnostic)
-                        try {
-                            let rows = root.querySelectorAll('[annotation-id]');
-                            for (let i = 0; i < rows.length; i++) {
-                                let r = rows[i];
-                                let c = r.querySelector ? r.querySelector('.comment') : null;
-                                if (c && !c.classList.contains('my-markdown-rendered-view') && !seenNodes.has(c)) {
-                                    seenNodes.add(c);
-                                    targets.push({ node: c, docName, inPopup: false, row: r });
-                                }
-                            }
-                        } catch(e) {}
-
-                        // 2. Scan for contenteditable, testid comments, and general comments
-                        let found = root.querySelectorAll('[contenteditable="true"], [contenteditable=""], [data-testid="annotation-comment"], .comment');
+                        let found = root.querySelectorAll('[contenteditable="true"], [contenteditable=""], [data-testid="annotation-comment"]');
                         for (let i = 0; i < found.length; i++) {
                             let node = found[i];
-                            if (node.classList.contains('my-markdown-rendered-view') || seenNodes.has(node)) continue;
+                            if (node.classList.contains('my-markdown-rendered-view')) continue;
+                            if (node.closest && node.closest('annotation-row')) continue;
                             
                             let inPopup = false;
                             let isComment = false;
-                            let row = null;
-                            let p = node;
-                            while (p) {
-                                let testid = (p.dataset && p.dataset.testid) ? p.dataset.testid.toLowerCase() : '';
-                                let cname = (p.className || '').toString().toLowerCase();
-                                let tag = (p.tagName || '').toLowerCase();
-                                if (testid.includes('popup') || cname.includes('popup')) inPopup = true;
+                            let pScan = node.parentElement;
+                            while (pScan) {
+                                let testid = (pScan.dataset && pScan.dataset.testid) ? pScan.dataset.testid.toLowerCase() : '';
+                                let cname = (pScan.className || '').toString().toLowerCase();
+                                if (testid.includes('popup') || cname.includes('popup') || cname.includes('view-popup')) inPopup = true;
                                 if (testid.includes('comment') || cname.includes('comment')) isComment = true;
-                                if (tag.endsWith('annotation-row') || (p.hasAttribute && p.hasAttribute('annotation-id'))) {
-                                    row = p;
-                                    isComment = true;
-                                }
-                                p = p.parentElement;
+                                pScan = pScan.parentElement;
                             }
                             
                             if (!inPopup && !isComment) continue;
-                            seenNodes.add(node);
-                            targets.push({ node, docName, inPopup, row });
+                            targets.push({ node, docName, inPopup });
                         }
                     }
 
@@ -425,88 +517,103 @@ var ZoteroMarkdownAnnotations = {
                         }
                     }
 
-                    targets.forEach(({node, docName, inPopup, row}) => {
+                    targets.forEach(({node, docName, inPopup}) => {
                         try {
-                            let isEditable = node.hasAttribute('contenteditable');
                             let doc = node.ownerDocument || win.document;
                             let viewWin = doc.defaultView || win;
 
-                            // CASE 1: Right sidebar (annotation-row, read-only)
-                            if (!isEditable && row) {
-                                let rawText = getSidebarRawText(node, row);
-                                let rDiv = node.parentNode ? node.parentNode.querySelector(':scope > .my-markdown-rendered-view') : node.nextElementSibling;
+                            if (node.dataset.mdRendered === 'true') {
+                                let renderedDiv = node.parentNode ? node.parentNode.querySelector(':scope > .my-markdown-rendered-view') : null;
+                                let toggleBtn = node.parentNode ? node.parentNode.querySelector(':scope > .md-toggle-btn') : null;
 
-                                if (node.dataset.mdRendered === 'true' && rDiv && rDiv.classList.contains('my-markdown-rendered-view')) {
-                                    if (rDiv.dataset.lastRawText !== rawText) {
-                                        if (!rawText || rawText.trim() === '') {
-                                            rDiv.style.display = 'none';
-                                            node.style.display = '';
-                                        } else {
-                                            try {
-                                                let renderedHTML = md.render(rawText);
-                                                setSafeHTML(rDiv, renderedHTML, doc, win);
-                                                node.style.display = 'none';
-                                                rDiv.style.display = 'block';
-                                            } catch(err) {
-                                                logToFile("render update error: " + err.message);
-                                                node.style.display = '';
-                                                rDiv.style.display = 'none';
+                                if (renderedDiv) {
+                                    let currentAnnoId = node.id || '';
+                                    let idChanged = Boolean(currentAnnoId && renderedDiv.dataset.annotationId && renderedDiv.dataset.annotationId !== currentAnnoId);
+                                    let rawHTML = node.innerHTML || '';
+
+                                    // Fast O(1) bail-out: if annotation ID and innerHTML haven't changed, skip all DOM parsing!
+                                    if (!idChanged && renderedDiv.dataset.lastNodeHTML === rawHTML) {
+                                        return;
+                                    }
+
+                                    let currentText = getNodeRawText(node);
+                                    let textChanged = (renderedDiv.dataset.lastRawText !== currentText);
+
+                                    if (idChanged || textChanged) {
+                                        // If user is actively typing in edit mode on the same annotation, do not interrupt
+                                        if (!idChanged && doc.activeElement === node && renderedDiv.style.display === 'none') {
+                                            return;
+                                        }
+
+                                        renderedDiv.dataset.annotationId = currentAnnoId;
+                                        renderedDiv.dataset.lastRawText = currentText;
+                                        renderedDiv.dataset.lastNodeHTML = rawHTML;
+
+                                        if (idChanged) {
+                                            renderedDiv.style.width = '';
+                                            renderedDiv.style.height = '';
+                                            renderedDiv.style.maxHeight = '';
+                                            node.style.width = '';
+                                            node.style.height = '';
+                                            node.style.maxHeight = '';
+                                            if (inPopup) {
+                                                let popupContainer = node._mdPopupContainer;
+                                                if (!popupContainer && node.parentElement) {
+                                                    let pr = node.parentElement;
+                                                    for (let i = 0; i < 6; i++) {
+                                                        if (pr && pr.style) {
+                                                            let compStyle = viewWin.getComputedStyle(pr);
+                                                            if ((compStyle && compStyle.position === 'absolute') || (pr.dataset && pr.dataset.testid === 'annotation-popup')) {
+                                                                popupContainer = pr;
+                                                                break;
+                                                            }
+                                                        }
+                                                        pr = pr.parentElement;
+                                                    }
+                                                    if (!popupContainer && node.parentElement.closest) {
+                                                        popupContainer = node.parentElement.closest('.view-popup, .annotation-popup');
+                                                    }
+                                                }
+                                                if (popupContainer) {
+                                                    popupContainer.style.width = '';
+                                                    popupContainer.style.minWidth = '';
+                                                    popupContainer.style.maxWidth = '';
+                                                    popupContainer.style.maxHeight = '';
+                                                }
                                             }
                                         }
-                                        rDiv.dataset.lastRawText = rawText;
-                                    }
-                                    return;
-                                }
 
-                                if (rDiv && rDiv.classList.contains('my-markdown-rendered-view')) {
-                                    rDiv.remove();
-                                }
-
-                                let renderedDiv = createHTML(doc, 'div');
-                                renderedDiv.className = 'my-markdown-rendered-view md-in-sidebar';
-
-                                if (!rawText || rawText.trim() === '') {
-                                    renderedDiv.style.display = 'none';
-                                    node.style.display = '';
-                                } else {
-                                    try {
-                                        let renderedHTML = md.render(rawText);
-                                        setSafeHTML(renderedDiv, renderedHTML, doc, win);
-                                        node.style.display = 'none';
-                                        renderedDiv.style.display = 'block';
-                                    } catch(err) {
-                                        logToFile("render initial error: " + err.message);
-                                        node.style.display = '';
-                                        renderedDiv.style.display = 'none';
+                                        if (!currentText || currentText.trim() === '') {
+                                            renderedDiv.style.display = 'none';
+                                            node.style.display = '';
+                                            if (toggleBtn) toggleBtn.innerText = 'MD预览';
+                                        } else {
+                                            try {
+                                                let html = md.render(currentText);
+                                                let innerDiv = renderedDiv.firstElementChild || renderedDiv;
+                                                innerDiv.innerHTML = html;
+                                                node.style.display = 'none';
+                                                renderedDiv.style.display = 'block';
+                                                if (toggleBtn) toggleBtn.innerText = '源码编辑';
+                                            } catch(e) {}
+                                        }
+                                    } else {
+                                        renderedDiv.dataset.lastNodeHTML = rawHTML;
                                     }
                                 }
-                                renderedDiv.dataset.lastRawText = rawText;
-                                node.dataset.mdRendered = 'true';
-
-                                if (node.parentNode) {
-                                    node.parentNode.insertBefore(renderedDiv, node.nextSibling);
-                                }
-                                return;
-                            }
-
-                            // CASE 2: Editable annotation comment (PDF Reader popup or sidebar editor)
-                            if (node.dataset.mdRendered === 'true') {
                                 return;
                             }
                             node.dataset.mdRendered = 'true';
 
-                            let renderedDiv = createHTML(doc, 'div');
-                            renderedDiv.className = (node.className ? node.className + ' ' : '') + 'my-markdown-rendered-view';
-                            if (inPopup) {
-                                renderedDiv.setAttribute('contenteditable', 'true');
-                                renderedDiv.classList.add('md-in-popup');
-                                node.classList.add('md-in-popup');
-                            } else {
-                                renderedDiv.classList.add('md-in-sidebar');
-                                node.classList.add('md-in-sidebar');
-                            }
+                            let isEditable = node.hasAttribute('contenteditable');
 
-                            let innerDiv = createHTML(doc, 'div');
+                            let renderedDiv = doc.createElement('div');
+                            renderedDiv.className = (node.className ? node.className + ' ' : '') + 'my-markdown-rendered-view';
+                            renderedDiv.setAttribute('contenteditable', 'true');
+                            renderedDiv.dataset.annotationId = node.id || '';
+                            renderedDiv.dataset.lastNodeHTML = node.innerHTML || '';
+
+                            let innerDiv = doc.createElement('div');
                             innerDiv.setAttribute('contenteditable', 'false');
                             innerDiv.style.width = '100%';
                             innerDiv.style.height = '100%';
@@ -533,7 +640,7 @@ var ZoteroMarkdownAnnotations = {
                                 } else {
                                     try {
                                         let html = md.render(rawText);
-                                        setSafeHTML(innerDiv, html, doc, win);
+                                        innerDiv.innerHTML = html;
                                         node.style.display = 'none';
                                         renderedDiv.style.display = 'block';
                                     } catch(err) {
@@ -546,19 +653,27 @@ var ZoteroMarkdownAnnotations = {
                             }
 
                             if (inPopup) {
+                                renderedDiv.classList.add('md-in-popup');
+                                node.classList.add('md-in-popup');
+
                                 try {
                                     let p = null;
                                     let parent = node.parentElement;
                                     for (let i = 0; i < 6; i++) {
                                         if (parent && parent.style) {
                                             let compStyle = viewWin.getComputedStyle(parent);
-                                            if ((compStyle && compStyle.position === 'absolute') || parent.dataset.testid === 'annotation-popup') {
+                                            if ((compStyle && compStyle.position === 'absolute') || (parent.dataset && parent.dataset.testid === 'annotation-popup')) {
                                                 p = parent;
                                                 break;
                                             }
                                         }
                                         parent = parent.parentElement;
                                     }
+                                    if (!p && node.parentElement && node.parentElement.closest) {
+                                        p = node.parentElement.closest('.view-popup, .annotation-popup');
+                                    }
+                                    node._mdPopupContainer = p;
+                                    renderedDiv._mdPopupContainer = p;
 
                                     function unlockResize(elem, otherElem) {
                                         elem.addEventListener('mousedown', (e) => {
@@ -588,6 +703,9 @@ var ZoteroMarkdownAnnotations = {
                                     unlockResize(renderedDiv, node);
 
                                     if (viewWin.ResizeObserver) {
+                                        if (node._mdResizeObserver) {
+                                            try { node._mdResizeObserver.disconnect(); } catch(err) {}
+                                        }
                                         let ro = new viewWin.ResizeObserver(() => {
                                             let isRendered = renderedDiv.style.display !== 'none';
                                             let active = isRendered ? renderedDiv : node;
@@ -611,13 +729,84 @@ var ZoteroMarkdownAnnotations = {
                                         });
                                         ro.observe(renderedDiv);
                                         ro.observe(node);
+                                        node._mdResizeObserver = ro;
+                                        renderedDiv._mdResizeObserver = ro;
+                                    }
+
+                                    // Instant microtask-level redraw observer for popup annotation switching
+                                    if (viewWin.MutationObserver) {
+                                        if (node._mdMutationObserver) {
+                                            try { node._mdMutationObserver.disconnect(); } catch(err) {}
+                                        }
+                                        let mo = new viewWin.MutationObserver(() => {
+                                            let currentAnnoId = node.id || '';
+                                            let idChanged = Boolean(currentAnnoId && renderedDiv.dataset.annotationId && renderedDiv.dataset.annotationId !== currentAnnoId);
+                                            let rawHTML = node.innerHTML || '';
+                                            if (idChanged || renderedDiv.dataset.lastNodeHTML !== rawHTML) {
+                                                if (!idChanged && doc.activeElement === node && renderedDiv.style.display === 'none') {
+                                                    return; // user actively typing in raw edit mode
+                                                }
+                                                let currentText = getNodeRawText(node);
+                                                let textChanged = (renderedDiv.dataset.lastRawText !== currentText);
+                                                if (!idChanged && !textChanged && renderedDiv.dataset.lastNodeHTML === rawHTML) {
+                                                    return;
+                                                }
+
+                                                renderedDiv.dataset.annotationId = currentAnnoId;
+                                                renderedDiv.dataset.lastRawText = currentText;
+                                                renderedDiv.dataset.lastNodeHTML = rawHTML;
+
+                                                if (idChanged) {
+                                                    renderedDiv.style.width = '';
+                                                    renderedDiv.style.height = '';
+                                                    renderedDiv.style.maxHeight = '';
+                                                    node.style.width = '';
+                                                    node.style.height = '';
+                                                    node.style.maxHeight = '';
+                                                    let popupContainer = node._mdPopupContainer || p;
+                                                    if (popupContainer) {
+                                                        popupContainer.style.width = '';
+                                                        popupContainer.style.minWidth = '';
+                                                        popupContainer.style.maxWidth = '';
+                                                        popupContainer.style.maxHeight = '';
+                                                    }
+                                                }
+
+                                                let btn = node.parentNode ? node.parentNode.querySelector(':scope > .md-toggle-btn') : null;
+                                                if (!currentText || currentText.trim() === '') {
+                                                    renderedDiv.style.display = 'none';
+                                                    node.style.display = '';
+                                                    if (btn) btn.innerText = 'MD预览';
+                                                } else {
+                                                    try {
+                                                        let html = md.render(currentText);
+                                                        innerDiv.innerHTML = html;
+                                                        node.style.display = 'none';
+                                                        renderedDiv.style.display = 'block';
+                                                        if (btn) btn.innerText = '源码编辑';
+                                                    } catch(e) {}
+                                                }
+                                            }
+                                        });
+                                        mo.observe(node, {
+                                            attributes: true,
+                                            attributeFilter: ['id'],
+                                            childList: true,
+                                            characterData: true,
+                                            subtree: true
+                                        });
+                                        node._mdMutationObserver = mo;
+                                        renderedDiv._mdMutationObserver = mo;
                                     }
                                 } catch(e) {}
+                            } else {
+                                renderedDiv.classList.add('md-in-sidebar');
+                                node.classList.add('md-in-sidebar');
                             }
 
                             if (isEditable) {
                                 try {
-                                    let toggleBtn = createHTML(doc, 'button');
+                                    let toggleBtn = doc.createElement('button');
                                     toggleBtn.className = 'md-toggle-btn';
                                     toggleBtn.innerText = 'MD预览';
 
@@ -629,7 +818,7 @@ var ZoteroMarkdownAnnotations = {
                                     }
 
                                     let isEditing = true;
-                                    let initialText = decodeRichComment(node.value !== undefined ? node.value : (node.innerText || node.textContent || ''));
+                                    let initialText = getNodeRawText(node);
                                     if (initialText && initialText.trim() !== '') {
                                         updateRenderedView(initialText);
                                         renderedDiv.dataset.lastRawText = initialText;
@@ -646,7 +835,7 @@ var ZoteroMarkdownAnnotations = {
 
                                     innerDiv.addEventListener('dblclick', (e) => {
                                         e.stopPropagation();
-                                        if (!isEditing) {
+                                        if (renderedDiv.style.display !== 'none') {
                                             toggleBtn.click();
                                         }
                                     });
@@ -654,13 +843,16 @@ var ZoteroMarkdownAnnotations = {
                                     toggleBtn.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         e.preventDefault();
-                                        isEditing = !isEditing;
+                                        let isPreview = (renderedDiv.style.display !== 'none');
 
-                                        if (isEditing) {
+                                        if (isPreview) {
                                             let w = renderedDiv.style.width;
                                             let h = renderedDiv.style.height;
                                             renderedDiv.style.display = 'none';
                                             node.style.display = '';
+                                            if (node.getAttribute('contenteditable') === 'false') {
+                                                node.setAttribute('contenteditable', 'true');
+                                            }
                                             if (w) node.style.width = w;
                                             if (h) node.style.height = h;
                                             toggleBtn.innerText = 'MD预览';
@@ -668,7 +860,7 @@ var ZoteroMarkdownAnnotations = {
                                         } else {
                                             let w = node.style.width;
                                             let h = node.style.height;
-                                            let currentText = decodeRichComment(node.value !== undefined ? node.value : (node.innerText || node.textContent || ''));
+                                            let currentText = getNodeRawText(node);
                                             if (renderedDiv.dataset.lastRawText !== currentText) {
                                                 updateRenderedView(currentText);
                                                 renderedDiv.dataset.lastRawText = currentText;
@@ -682,7 +874,7 @@ var ZoteroMarkdownAnnotations = {
                                     });
                                 } catch(err) {}
                             } else {
-                                let rawText = decodeRichComment(node.innerText || node.textContent || '');
+                                let rawText = getNodeRawText(node);
                                 if (renderedDiv.dataset.lastRawText !== rawText) {
                                     updateRenderedView(rawText);
                                     renderedDiv.dataset.lastRawText = rawText;
@@ -722,13 +914,32 @@ function shutdown(data, reason) {
         docs.forEach(doc => {
             if (!doc) return;
             doc.querySelectorAll('#md-annotations-style, #katex-css').forEach(e => e.remove());
-            doc.querySelectorAll('.my-markdown-rendered-view').forEach(e => e.remove());
+            doc.querySelectorAll('.my-markdown-rendered-view').forEach(e => {
+                if (e._mdResizeObserver) {
+                    try { e._mdResizeObserver.disconnect(); } catch(err) {}
+                    delete e._mdResizeObserver;
+                }
+                if (e._mdMutationObserver) {
+                    try { e._mdMutationObserver.disconnect(); } catch(err) {}
+                    delete e._mdMutationObserver;
+                }
+                e.remove();
+            });
             doc.querySelectorAll('.md-toggle-btn').forEach(e => e.remove());
             doc.querySelectorAll('[data-md-rendered="true"]').forEach(e => {
+                if (e._mdResizeObserver) {
+                    try { e._mdResizeObserver.disconnect(); } catch(err) {}
+                    delete e._mdResizeObserver;
+                }
+                if (e._mdMutationObserver) {
+                    try { e._mdMutationObserver.disconnect(); } catch(err) {}
+                    delete e._mdMutationObserver;
+                }
                 delete e.dataset.mdRendered;
                 e.style.display = '';
             });
             delete doc.katexFontsLoaded;
+            delete doc._mdStyleInjected;
         });
     } catch (e) {}
 }
