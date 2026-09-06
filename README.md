@@ -32,6 +32,22 @@ Make annotations in Zotero 7/9 work as Markdown rather than pure text.
 4. Open any PDF, add a text comment, and you will see a `MD Preview` / `源码编辑` toggle button at the bottom of the box.
    打开任意 PDF，添加文本批注，你会发现批注框底部多出了一个 `MD预览` / `源码编辑` 的切换按钮。
 
+## Changelog / 更新日志
+
+### v0.1.3 (2026-09-06)
+- **修复主界面右侧边栏批注无法渲染的问题**：
+  - 彻底解决 Zotero 7 主窗口 XHTML (`application/xhtml+xml`) 环境下由于 `<hr>`（分割线 `---`）、`<br>` 引起的 `NS_ERROR_DOM_SYNTAX_ERR` 严格 XML 解析报错。
+  - 引入 `setSafeHTML` 安全节点导入机制与 `xhtmlOut` 规范，实现右侧条目面板与 PDF 阅读器内部完全一致的 Markdown 和 KaTeX 公式渲染体验。
+  - 增强 `annotation-id` 整型识别与数据读取容错。
+- **完善右侧边栏样式**：
+  - 新增 Markdown 表格的优雅边框、斑马纹与居中排版。
+  - 优化公式水平滚动，杜绝超长公式溢出或截断。
+
+### v0.1.2 (2026-09-05)
+- 优化缩放手柄与动态双向尺寸同步（`ResizeObserver`），消除窗口跳变。
+- 批注卡片打开时自动渲染已有内容（非空批注默认进入 MD 预览模式）。
+- 限制批注最大高度，防止长文本无限纵向拉伸并提供滚动条。
+
 ## Build from Source / 从源码构建
 
 Requirements: Python 3
